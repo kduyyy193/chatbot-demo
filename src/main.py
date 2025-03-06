@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from src.api.v1 import chat
+from src.api.v1 import telegram
 from src.config.settings import settings
+from contextlib import asynccontextmanager
 
 app = FastAPI(
     title="Chatbot API",
@@ -11,7 +13,12 @@ app = FastAPI(
 )
 
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
+app.include_router(telegram.router, prefix="/api/v1", tags=["Telegram"])
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await telegram.setup_webhook()
+    yield
 
 @app.get("/")
 async def root():
