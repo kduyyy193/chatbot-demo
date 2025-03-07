@@ -33,3 +33,5 @@ instance/
 *.docker
 
 test.db
+db_bot
+*.jsonl

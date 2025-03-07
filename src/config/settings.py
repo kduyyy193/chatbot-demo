@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = "TELEGRAM_BOT_TOKEN"
     WEBHOOK_URL: str = "WEBHOOK_URL"
     OPENAI_API_KEY: str = "OPENAI_API_KEY"
+    DB_PATH: str = "DB_PATH"
+    MODEL_NAME: str = "MODEL_NAME"
 
     class Config:
         env_file = ".env"

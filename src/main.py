@@ -1,6 +1,5 @@
 from fastapi import FastAPI
-from src.api.v1 import chat
-from src.api.v1 import telegram
+from src.api.v1 import chat, train, telegram
 from src.config.settings import settings
 from contextlib import asynccontextmanager
 
@@ -14,11 +13,21 @@ app = FastAPI(
 
 app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 app.include_router(telegram.router, prefix="/api/v1", tags=["Telegram"])
+app.include_router(train.router, prefix="/api/v1", tags=["Train"])
+
+
+@app.post("/api/v1/webhook")
+async def webhook(update: dict):
+    telegram_service = app.state.telegram_service
+    telegram_service.process_update(update)
+    return {"status": "ok"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await telegram.setup_webhook()
     yield
+
 
 @app.get("/")
 async def root():

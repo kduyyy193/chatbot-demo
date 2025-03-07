@@ -1,0 +1,11 @@
+from src.db.connection import DatabaseConnection
+from src.repositories.training import TrainingDataRepository
+
+db_connection = DatabaseConnection()
+training_data_repo = TrainingDataRepository(db_connection)
+db_connection.init_db()
+
+save_training_data = training_data_repo.save_training_data
+get_all_training_data = training_data_repo.get_all_training_data
+get_current_model_from_db = training_data_repo.get_current_model_from_db
+save_fine_tuned_model_to_db = training_data_repo.save_fine_tuned_model_to_db
