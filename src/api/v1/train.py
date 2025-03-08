@@ -1,25 +1,25 @@
 import os
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from src.db import save_training_data, get_all_training_data, save_fine_tuned_model_to_db
 from openai import OpenAI
 from src.config.settings import settings
 import json
 import asyncio
-from typing import Optional, List, Dict
+from typing import List, Dict
 
 from src.logger_config import setup_logging
 
 logger = setup_logging()
 
 router = APIRouter()
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+client: OpenAI = OpenAI(api_key=settings.OPENAI_API_KEY)
 logger.info(f"Key {settings.OPENAI_API_KEY}")
 
 current_model: str = settings.MODEL_NAME
-MIN_RECORDS_FOR_FINETUNE: int = 2  # Fine-tune when there are at least 2 records
+MIN_RECORDS_FOR_FINETUNE: int = 10  # Fine-tune when there are at least 2 records
 
 
-def generate_dynamic_prompts(content: str) -> list:
+def generate_dynamic_prompts(content: str) -> List[Dict[str, List[Dict[str, str]]]]:
     if "Giám đốc" in content or "giám đốc" in content:
         prompt = "Ai là giám đốc?"
     elif "Trưởng phòng" in content or "trưởng phòng" in content:
@@ -48,15 +48,15 @@ async def wait_for_finetune(fine_tune_id: str) -> str:
 
 
 async def prepare_finetune_data() -> str:
-    training_data = get_all_training_data()
+    training_data: List[Dict[str, str]] = get_all_training_data()
     if not training_data:
         raise HTTPException(status_code=400, detail="Không có dữ liệu để fine-tune")
-    file_path = "fine_tune_data.jsonl"
+    file_path: str = "fine_tune_data.jsonl"
     logger.debug(f"Preparing to write to {file_path}")
     with open(file_path, "w", encoding="utf-8") as f:
         for item in training_data:
-            content = item["content"]
-            entries = generate_dynamic_prompts(content)
+            content: str = item["content"]
+            entries: List[Dict[str, List[Dict[str, str]]]] = generate_dynamic_prompts(content)
             for entry in entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     if os.path.exists(file_path):
@@ -82,30 +82,29 @@ async def start_finetune(file_id: str) -> str:
 
 
 @router.post("/train")
-async def train_model(file: Optional[UploadFile] = File(None), text: str = Form(None)):
+async def train_model(file: UploadFile = File(...)) -> Dict[str, str]:
     global current_model
-    logger.debug(f"Received request - file: {file}, text: {text}")
+    logger.debug(f"Received request - file: {file.filename}")
     try:
-        if not file and not text:
-            raise HTTPException(status_code=400, detail="Vui lòng cung cấp file hoặc text!")
-        if file and file.filename:
-            if not file.filename.endswith(".txt"):
-                raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file .txt!")
-            content = (await file.read()).decode("utf-8")
-            logger.info(f"Received training file: {file.filename}, length: {len(content)}")
-        elif text:
-            content = text
-            logger.info(f"Received training text, length: {len(content)}")
-        else:
-            raise HTTPException(status_code=400, detail="Dữ liệu file không hợp lệ!")
-
+        if file.filename is None or not file.filename.endswith(".jsonl"):
+            raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file .jsonl với tên hợp lệ!")
+        content: str = (await file.read()).decode("utf-8")
+        logger.info(f"Received training file: {file.filename}, length: {len(content)}")
+        lines: List[str] = content.strip().split("\n")
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                json.loads(line)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="File .jsonl không hợp lệ!")
         train_id = save_training_data(content)
-        all_data = get_all_training_data()
+        all_data: List[Dict[str, str]] = get_all_training_data()
         if len(all_data) >= MIN_RECORDS_FOR_FINETUNE:
-            file_path = await prepare_finetune_data()
-            file_id = await upload_file_to_openai(file_path)
-            fine_tune_id = await start_finetune(file_id)
-            new_model = await wait_for_finetune(fine_tune_id)
+            file_path: str = await prepare_finetune_data()
+            file_id: str = await upload_file_to_openai(file_path)
+            fine_tune_id: str = await start_finetune(file_id)
+            new_model: str = await wait_for_finetune(fine_tune_id)
             logger.info(f"Fine-tuned model: {new_model}")
             current_model = new_model
             save_fine_tuned_model_to_db(new_model)
@@ -113,12 +112,12 @@ async def train_model(file: Optional[UploadFile] = File(None), text: str = Form(
             return {
                 "status": "ok",
                 "message": f"Đã train và fine-tune. Model mới: {current_model}",
-                "train_id": train_id
+                "train_id": str(train_id)
             }
         return {
             "status": "ok",
             "message": f"Đã lưu dữ liệu, cần {MIN_RECORDS_FOR_FINETUNE - len(all_data) + 1} bản ghi nữa để fine-tune",
-            "train_id": train_id
+            "train_id": str(train_id)
         }
     except Exception as e:
         logger.error(f"Train error: {str(e)}")
